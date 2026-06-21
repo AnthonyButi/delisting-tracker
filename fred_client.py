@@ -29,8 +29,37 @@ def get_series(series_id):
     df = df.rename(columns={"value": series_id})
     return df
 
+def get_panel(series_ids):
+    """Pull several series and join them into one monthly-aligned DataFrame.
+    Skips, with a warning, any series that fails to fetch."""
+    frames = []
+    for sid in series_ids:
+        try:
+            frames.append(get_series(sid))
+        except Exception as e:
+            print(f"  ! Skipping {sid}: {e}")
+    panel = pd.concat(frames, axis=1)
+    return panel
+
+def build_panel(cbsa_code="16980"):
+    """Build the full monthly panel of housing metrics for one metro (CBSA)."""
+    monthly_series = [
+        f"ACTLISCOU{cbsa_code}",   # active listings
+        f"NEWLISCOU{cbsa_code}",   # new listings
+        f"PENLISCOU{cbsa_code}",   # pending listings
+        f"PRIREDCOU{cbsa_code}",   # price-reduced count
+    ]
+    panel = get_panel(monthly_series)
+
+    # 30-year mortgage rate is weekly and national -> collapse to monthly
+    mortgage = get_series("MORTGAGE30US").resample("MS").mean()
+    panel = panel.join(mortgage)
+
+    return panel
+
+
 if __name__ == "__main__":
-    df = get_series("ACTLISCOUUS")
-    print(df.tail())
-    print("Shape:", df.shape)
-    print("Types:", df.dtypes.to_dict())
+    panel = build_panel()
+    print(panel.tail())
+    print("Shape:", panel.shape)
+    print("Columns:", list(panel.columns))

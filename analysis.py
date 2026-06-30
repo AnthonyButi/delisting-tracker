@@ -61,11 +61,39 @@ def compute_withdrawals(panel, dwell_months=PENDING_DWELL_MONTHS):
 
     return df
 
+def add_smoothing(result):
+    """Add trend views that see past the seasonal swing."""
+    df = result.copy()
+    # 12-month rolling mean spans a full year -> seasonality averages out,
+    # leaving the underlying trend in withdrawal pressure.
+    df["rate_trend_%"] = df["delisting_rate"].rolling(12).mean() * 100
+    # Year-over-year: each month vs the SAME month last year, so the
+    # seasonal component cancels (Jan vs Jan). Result is in percentage points.
+    df["rate_yoy_pp"] = (df["delisting_rate"] - df["delisting_rate"].shift(12)) * 100
+    return df
+
+def driver_correlations(result):
+    """Correlate the delisting rate against its drivers using YoY changes,
+    so a shared seasonal rhythm can't manufacture a fake correlation."""
+    signals = pd.DataFrame({
+        "delisting_rate": result["delisting_rate"].diff(12),
+        "mortgage_rate":  result["mortgage"].diff(12),
+        "price_reduced":  result["price_reduced"].diff(12),
+    })
+    return signals.corr()
 
 if __name__ == "__main__":
     panel = load_panel()
     result = compute_withdrawals(panel)
     result["delisting_rate_%"] = result["delisting_rate"] * 100
-    cols = ["active", "new", "pending", "exits",
-            "went_pending", "withdrawn", "delisting_rate_%"]
-    print(result[cols].tail(12).round(1))
+    result = add_smoothing(result)
+
+    cols = ["active", "withdrawn", "delisting_rate_%", "rate_trend_%", "rate_yoy_pp"]
+    print("Withdrawal signal with trend + year-over-year:")
+    print(result[cols].tail(14).round(1))
+
+    print("\nYoY correlations (delisting rate vs drivers):")
+    print(driver_correlations(result).round(2))
+
+    print("\nDelisting-to-new ratio (national was ~0.27 in Oct 2025, Miami ~0.45):")
+    print((result["withdrawn"] / result["new"]).tail(12).round(2))
